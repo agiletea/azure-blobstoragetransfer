@@ -1,10 +1,11 @@
 {
-  "exclude": [
-    "**/bin",
-    "**/bower_components",
-    "**/jspm_packages",
-    "**/node_modules",
-    "**/obj",
-    "**/platforms"
-  ]
+	"IsEncrypted": false,
+	"Values": {
+		"AzureWebJobsStorage": "UseDevelopmentStorage=true",
+		"SourceContainer": "DefaultEndpointsProtocol=https;AccountName=benbowsource;AccountKey=qylpU6abDPd/ngZiZPHFJLZrHH5/2CuMrhVTrl0rva6whEP1SeLZ+jbOS+DZgf+17H+eODhpKVhXfwNYZ5Z3tw==;EndpointSuffix=core.windows.net",
+		"TargetContainer": "DefaultEndpointsProtocol=https;AccountName=benbowv2;AccountKey=9EIRvAir2Zmq3VqMOHK1l4rKlPDdGgGzS5/gks5b8oNoB/Hiu5kkJ81VFn0nfC4yEpmecq+/oxHXFdABXAZSDw==;EndpointSuffix=core.windows.net",
+		"FUNCTIONS_WORKER_RUNTIME": "dotnet",
+		"input-container": "benbow-backup",
+		"output-container": "benbow-backup-target"
+	}
 }

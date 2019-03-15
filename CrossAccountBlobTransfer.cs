@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Reflection.Metadata;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs;
@@ -12,6 +13,8 @@ namespace BlobStorageTransfer
 {
     public static class CrossAccountBlobTransfer
     {
+        private static string[] PermittedCoolBlobTierStorageKinds = { "BlobStorage", "BlockBlobStorage", "StorageV2" };
+
         [FunctionName("CrossAccountBlobTransfer")]
         public static async Task RunAsync(
             [BlobTrigger("%input-container%/{name}", Connection = "SourceContainer")]CloudBlockBlob inputBlob,
@@ -54,7 +57,18 @@ namespace BlobStorageTransfer
                     copying = archiveBlob.CopyState.Status == CopyStatus.Pending;
                 }
 
-                await archiveBlob.SetStandardBlobTierAsync(StandardBlobTier.Cool).ConfigureAwait(false);
+                var accountProperties = await container.GetAccountPropertiesAsync().ConfigureAwait(false);
+
+                if (!PermittedCoolBlobTierStorageKinds.Contains(accountProperties.AccountKind))
+                {
+                    log.LogWarning($"Unable to set target blob access tier to 'Cool' as the target storage account " +
+                        $"(${accountProperties.AccountKind}) does not support blob access tier settings");
+                }
+                else
+                {
+                    await archiveBlob.SetStandardBlobTierAsync(StandardBlobTier.Cool).ConfigureAwait(false);
+                    log.LogInformation("Access tier for target blob set to 'cool'");
+                }
 
                 log.LogInformation($"Archived {name} to {container.Uri} backup storage");
             }
@@ -66,8 +80,6 @@ namespace BlobStorageTransfer
             {
                 log.LogError($"Failed to copy blob to storage due to unexpected exception", e, e.Message);
             }
-
-            //log.LogInformation($"[MOCK] Archived {name} to {container.Uri} backup storage");
         }
 
         private static string GetShareAccessUri(CloudBlob sourceBlob)
