@@ -1,11 +1,8 @@
 using System;
 using System.IO;
-using System.Linq;
-using System.Reflection.Metadata;
 using System.Threading.Tasks;
 using BlobStorageTransfer.Copying;
 using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
@@ -46,7 +43,7 @@ namespace BlobStorageTransfer
 
             try
             {
-                var sasSourceBlobUrl = GetShareAccessUri(inputBlob, TimeSpan.FromMinutes(5));
+                var sasSourceBlobUrl = GetSharedAccessUri(inputBlob, TimeSpan.FromMinutes(5));
 
                 var copyResult = await blobCopyService.CopyAsync(archiveBlob, new Uri(sasSourceBlobUrl)).ConfigureAwait(false);
 
@@ -82,7 +79,7 @@ namespace BlobStorageTransfer
             }
         }
 
-        private static string GetShareAccessUri(CloudBlob sourceBlob, TimeSpan validityWindow)
+        private static string GetSharedAccessUri(CloudBlob sourceBlob, TimeSpan validityWindow)
         {
             var policy = new SharedAccessBlobPolicy
             {
@@ -92,7 +89,7 @@ namespace BlobStorageTransfer
             };
 
             var sas = sourceBlob.GetSharedAccessSignature(policy);
-            return sourceBlob.Uri.AbsoluteUri + sas;
+            return $"{sourceBlob.Uri.AbsoluteUri}{sas}";
         }
     }
 }
