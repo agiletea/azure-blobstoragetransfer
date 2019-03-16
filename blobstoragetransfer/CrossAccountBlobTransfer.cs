@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection.Metadata;
 using System.Threading.Tasks;
+using BlobStorageTransfer.Copying;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Extensions.Logging;
@@ -11,12 +12,17 @@ using Microsoft.WindowsAzure.Storage.Blob;
 
 namespace BlobStorageTransfer
 {
-    public static class CrossAccountBlobTransfer
+    public class CrossAccountBlobTransfer
     {
-        private static string[] PermittedCoolBlobTierStorageKinds = { "BlobStorage", "BlockBlobStorage", "StorageV2" };
+        private readonly IBlobCopyService blobCopyService;
+        
+        public CrossAccountBlobTransfer(IBlobCopyService blobCopyService)
+        {
+            this.blobCopyService = blobCopyService;
+        }
 
         [FunctionName("CrossAccountBlobTransfer")]
-        public static async Task RunAsync(
+        public async Task RunAsync(
             [BlobTrigger("%input-container%/{name}", Connection = "SourceContainer")]CloudBlockBlob inputBlob,
             [Blob("%output-container%/{name}", FileAccess.Write, Connection ="TargetContainer")]CloudBlobContainer container,
             string name, 
@@ -40,56 +46,49 @@ namespace BlobStorageTransfer
 
             try
             {
-                var sasSourceBlobUrl = GetShareAccessUri(inputBlob);
+                var sasSourceBlobUrl = GetShareAccessUri(inputBlob, TimeSpan.FromMinutes(5));
 
-                await archiveBlob.StartCopyAsync(
-                    new Uri(sasSourceBlobUrl))
-                    .ConfigureAwait(false);
+                var copyResult = await blobCopyService.CopyAsync(archiveBlob, new Uri(sasSourceBlobUrl)).ConfigureAwait(false);
 
-                log.LogInformation("Blob copy started");
-
-                var copying = true;
-                while (copying)
+                if (copyResult != CopyStatus.Success)
                 {
-                    // add in some delay here 
-                    await Task.Delay(500);
-                    await archiveBlob.FetchAttributesAsync().ConfigureAwait(false);
-                    copying = archiveBlob.CopyState.Status == CopyStatus.Pending;
-                }
-
-                var accountProperties = await container.GetAccountPropertiesAsync().ConfigureAwait(false);
-
-                if (!PermittedCoolBlobTierStorageKinds.Contains(accountProperties.AccountKind))
-                {
-                    log.LogWarning($"Unable to set target blob access tier to 'Cool' as the target storage account " +
-                        $"(${accountProperties.AccountKind}) does not support blob access tier settings");
-                }
-                else
-                {
-                    await archiveBlob.SetStandardBlobTierAsync(StandardBlobTier.Cool).ConfigureAwait(false);
-                    log.LogInformation("Access tier for target blob set to 'cool'");
+                    var error = $"Failed to complete copy of {inputBlob.Uri.AbsoluteUri} to {archiveBlob.Uri.AbsoluteUri}. Copy state was {copyResult}";
+                    log.LogError(error);
+                    throw new StorageException(error);
                 }
 
                 log.LogInformation($"Archived {name} to {container.Uri} backup storage");
+
+                var setAccessTierResult = await blobCopyService.SetAccessTierAsync(archiveBlob, StandardBlobTier.Cool).ConfigureAwait(false);
+
+                if (setAccessTierResult)
+                {
+                    log.LogInformation($"Set {name} access tier to cool");
+                }
+                else
+                {
+                    log.LogWarning($"Failed to set {name} access tier to cool");
+                }
             }
             catch (StorageException se)
             {
                 log.LogError($"Failed to copy blob to storage due to storage exception", se, se.Message);
+                throw;
             }
             catch (Exception e)
             {
                 log.LogError($"Failed to copy blob to storage due to unexpected exception", e, e.Message);
+                throw;
             }
         }
 
-        private static string GetShareAccessUri(CloudBlob sourceBlob)
+        private static string GetShareAccessUri(CloudBlob sourceBlob, TimeSpan validityWindow)
         {
-            int validMins = 300;
             var policy = new SharedAccessBlobPolicy
             {
                 Permissions = SharedAccessBlobPermissions.Read,
                 SharedAccessStartTime = null,
-                SharedAccessExpiryTime = DateTimeOffset.Now.AddMinutes(validMins)
+                SharedAccessExpiryTime = DateTimeOffset.Now.Add(validityWindow)
             };
 
             var sas = sourceBlob.GetSharedAccessSignature(policy);
